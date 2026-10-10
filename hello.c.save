@@ -1,0 +1,7 @@
+#include <stdio.h>
+
+int main() {
+    printf("Язык C на Android успешно запущен!\n");
+    return 0;
+}
+

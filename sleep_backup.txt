@@ -1,0 +1,166 @@
+import telebot
+from telebot import types
+import datetime
+import os
+import re
+
+TOKEN = "8959639975:AAH6L3n2GbEMJn6scebKQ395kIuTDHZmSuo"
+ADMIN_ID = 5161013318
+bot = telebot.TeleBot(TOKEN)
+
+user_data = {}
+HISTORY_FILE = "sleep_history.txt"
+
+def get_sleep_keyboard():
+    markup = types.ReplyKeyboardMarkup(row_width=3, resize_keyboard=True, one_time_keyboard=True)
+    markup.add("21:00", "21:30", "22:00", "22:30", "23:00", "23:30", "00:00", "01:00", "02:00")
+    return markup
+
+def get_wake_keyboard():
+    markup = types.ReplyKeyboardMarkup(row_width=3, resize_keyboard=True, one_time_keyboard=True)
+    markup.add("05:00", "05:30", "06:00", "06:30", "07:00", "07:30", "08:00", "09:00", "10:00")
+    return markup
+
+@bot.message_handler(commands=["code"])
+def send_bot_code(message):
+    try:
+        with open("sleep.py", "r", encoding="utf-8") as f:
+            code_text = f.read()
+        with open("sleep_backup.txt", "w", encoding="utf-8") as f_back:
+            f_back.write(code_text)
+        with open("sleep_backup.txt", "rb") as doc:
+            bot.send_document(message.chat.id, doc, caption="📦 *Ваш бессмертный открытый код v3.5.3*")
+    except Exception as e:
+        bot.send_message(message.chat.id, "❌ Ошибка: " + str(e))
+
+@bot.message_handler(commands=["about"])
+def show_about(message):
+    about_text = (
+        "🤖 *Калькулятор бодрствования v3.5.3*\n\n"
+        "👑 *Автор и владелец проекта:* Дмитрий Белошицкий\n\n"
+        "🧠 *О боте:* Умный ИИ-помощник, который рассчитывает точный прогноз бодрости, "
+        "подбирает идеальное время для будильника по фазам сна и ведёт твой личный дневник.\n\n"
+        "🚀 Разработано на базе персональной нейросети и запущено прямо с мобильного сервера!"
+    )
+    bot.send_message(message.chat.id, about_text, parse_mode="Markdown")
+
+@bot.message_handler(commands=["clear"])
+def clear_history(message):
+    if os.path.exists(HISTORY_FILE):
+        os.remove(HISTORY_FILE)
+    bot.send_message(message.chat.id, "🧹 *Твой дневник сна успешно очищен!*", parse_mode="Markdown")
+
+@bot.message_handler(commands=["support"])
+def handle_support(message):
+    question = message.text.replace("/support", "").strip()
+    if not question:
+        bot.reply_to(message, "✍ Чтобы написать в поддержку, введи команду и текст вопроса через пробел.\n\nНапример:\n`/support Сломались кнопки!`", parse_mode="Markdown")
+        return
+    admin_msg = "🔔 *Новое обращение!*\n🆔 ID: " + str(message.chat.id) + "\n💬 Вопрос: " + str(question)
+    bot.send_message(ADMIN_ID, admin_msg, parse_mode="Markdown")
+    bot.reply_to(message, "🚀 Твой вопрос отправлен!")
+
+@bot.message_handler(commands=["stats"])
+def show_stats(message):
+    if not os.path.exists(HISTORY_FILE):
+        bot.send_message(message.chat.id, "📭 Дневник пуст.")
+        return
+    with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+    durations = []
+    for l in lines[-7:]:
+        match = re.search(r"Сон:\s*([\d.]+)", l)
+        if match:
+            durations.append(float(match.group(1)))
+    if durations:
+        avg = sum(durations) / len(durations)
+        bot.send_message(message.chat.id, "📊 Средний сон за неделю: `" + f"{avg:.1f}" + " ч.`", parse_mode="Markdown")
+    else:
+        bot.send_message(message.chat.id, "📭 Данных нет.")
+
+@bot.message_handler(commands=["history"])
+def show_history(message):
+    if not os.path.exists(HISTORY_FILE):
+        bot.send_message(message.chat.id, "📭 Дневник пуст.")
+        return
+    with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+    bot.send_message(message.chat.id, "📖 *История:*\n" + "".join(lines[-7:]), parse_mode="Markdown")
+
+@bot.message_handler(commands=["start", "help"])
+def send_welcome(message):
+    user_data[message.chat.id] = {}
+    bot.send_message(message.chat.id, "👋 Привет! Я твой ИИ-советник и дневник сна.\n\n"
+                                      "ℹ️ О проекте: /about\n"
+                                      "📖 История: /history\n"
+                                      "📊 Статистика: /stats\n"
+                                      "🧹 Очистить: /clear\n"
+                                      "🆘 Поддержка: /support текст\n"
+                                      "📦 Получить код: /code\n\n"
+                                      "Во сколько ты ложишься спать? Выбери кнопку:", reply_markup=get_sleep_keyboard())
+
+@bot.message_handler(func=lambda m: m.chat.id in user_data and "sleep" not in user_data[m.chat.id])
+def handle_sleep(m):
+    try:
+        h, mt = map(int, m.text.split(":"))
+        user_data[m.chat.id] = {"sleep_h": h, "sleep_m": mt, "sleep": h + (mt / 60.0)}
+        bot.send_message(m.chat.id, "⏳ Принято! А во сколько ты просыпаешься? Выбери кнопку:", reply_markup=get_wake_keyboard())
+    except Exception:
+        bot.reply_to(m, "❌ Ошибка формата!")
+
+@bot.message_handler(func=lambda m: m.chat.id in user_data and "sleep" in user_data[m.chat.id])
+def handle_wake(m):
+    try:
+        h, mt = map(int, m.text.split(":"))
+        x2 = h + (mt / 60.0)
+        x1 = user_data[m.chat.id]["sleep"]
+        
+        duration = x2 - x1 if x2 >= x1 else (24 - x1) + x2
+        energy = max(0.0, min(100.0, 100.0 - (abs(duration - 8.0) * 10) if 7.5 <= duration <= 8.5 else (65.0 + ((duration - 5.5) * 15) if 5.5 <= duration < 7.5 else (max(50.0, 100.0 - (duration - 8.5) * 20) if duration > 8.5 else (duration / 5.5) * 60.0))))
+        tips = "Идеально! 🚀" if energy >= 85 else ("Нормально 👍" if energy >= 65 else ("Вялость ☕" if energy >= 40 else "Зомби 😴"))
+        
+        today = datetime.datetime.now().strftime("%d.%m.%Y")
+        with open(HISTORY_FILE, "a", encoding="utf-8") as f_out:
+            f_out.write("📅 *" + today + "* — Сон: `" + str(round(duration, 1)) + " ч.` | Бодрость: `" + str(round(energy, 1)) + "%`\n")
+            
+        sh = user_data[m.chat.id]["sleep_h"]
+        sm = user_data[m.chat.id]["sleep_m"]
+        
+        cycles = []
+        for c in range(2, 7):
+            total_minutes = sh * 60 + sm + 15 + c * 90
+            c_h = (total_minutes // 60) % 24
+            c_m = total_minutes % 60
+            str_h = "0" + str(c_h) if c_h < 10 else str(c_h)
+            str_m = "0" + str(c_m) if c_m < 10 else str(c_m)
+            cycles.append("⏰ " + str_h + ":" + str_m + " (" + str(round((c * 90) / 60, 1)) + " ч.)")
+            
+        response = (
+            "📊 *Расчет сна:*\n"
+            "⏳ Время: " + str(round(duration, 1)) + " ч.\n"
+            "⚡ Бодрость: " + str(round(energy, 1)) + "%\n"
+            "💡 Совет: " + tips + "\n\n"
+            "💾 Дневник обновлен: /history\n"
+            "📊 Неделя: /stats\n\n"
+            "💤 *Фазы сна:* \n" + "\n".join(cycles) + "\n\n"
+            "📖 *А пока малыш засыпает, почитайте ему сказку на ночь в вашем Сообществе!*\n"
+            "Все рассказы и волшебные сказки ждут вас на канале:\n"
+            "👉 t.me/dima_stories\n\n"
+            "Нажми /start для нового расчета."
+        )
+        bot.send_message(m.chat.id, response, reply_markup=types.ReplyKeyboardRemove())
+        del user_data[m.chat.id]
+    except Exception as e:
+        bot.send_message(m.chat.id, "❌ Ошибка расчета: " + str(e))
+
+@bot.message_handler(func=lambda m: m.chat.id == ADMIN_ID and m.reply_to_message is not None)
+def reply_user(m):
+    try:
+        uid = int(re.search(r"ID:\s*(\d+)", m.reply_to_message.text).group(1))
+        bot.send_message(uid, "📨 *Ответ:*\n\n" + str(m.text), parse_mode="Markdown")
+        bot.send_message(ADMIN_ID, "✅ Доставлено!")
+    except Exception:
+        pass
+
+print("--- ИИ-Экосистема v3.5.3 успешно развернута! ---")
+bot.infinity_polling()
